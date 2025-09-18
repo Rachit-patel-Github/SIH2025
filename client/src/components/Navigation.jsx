@@ -5,6 +5,7 @@ const Navigation = () => {
   const tabs = [
     { id: "dashboard", label: "Dashboard", path: "/dashboard" },
     { id: "scheduling", label: "Therapy Scheduling", path: "/scheduling" },
+    { id: "chat", label: "Chat", path: "/chat" },
     {
       id: "notifications",
       label: "Notifications & Care",
