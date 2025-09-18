@@ -18,6 +18,7 @@ import Footer from "./components/Footer";
 import AuthContainer from "./components/auth/AuthContainer";
 import LandingPage from "./components/LandingPage";
 import PractitionerHomePage from "./components/PractitionerHomePage";
+import ChatPanel from "./components/ChatPanel";
 import { useAppData } from "./hooks/useAppData";
 import ChatbotWidget from "./components/Dashboard/ChatbotWidget"; // ✅ import chatbot
 
@@ -181,21 +182,32 @@ const App = () => {
               </PrivateRoute>
             }
           />
+
+          <Route
+            path="/chat"
+            element={
+              <PrivateRoute>
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                  <h2 className="text-2xl font-bold text-gray-800 mb-6">
+                    Chat
+                  </h2>
+                  <ChatPanel
+                    currentUserId={user?._id}
+                    currentUserEmail={user?.email}
+                    userType={user?.userType}
+                  />
+                </div>
+              </PrivateRoute>
+            }
+          />
         </Routes>
       </main>
 
       {isAuthenticated && (
         <>
           <div className="fixed bottom-6 right-6 z-50">
-            <ChatbotWidget />
+            <ChatbotWidget user={user} />
           </div>
-
-          <FloatingActionButton
-            showQuickMenu={showQuickMenu}
-            setShowQuickMenu={setShowQuickMenu}
-            isMenuSticky={isMenuSticky}
-            setIsMenuSticky={setIsMenuSticky}
-          />
         </>
       )}
 
