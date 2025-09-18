@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Leaf,
   Heart,
@@ -12,7 +13,8 @@ import {
   CheckCircle,
 } from "lucide-react";
 
-const LandingPage = ({ onGetStarted }) => {
+const LandingPage = () => {
+  const navigate = useNavigate();
   const scrollToSection = (sectionId) => {
     const element = document.getElementById(sectionId);
     if (element) {
@@ -270,7 +272,7 @@ This treatment is particularly effective for skin disorders, enlarged liver, spl
 
             {/* Action Button */}
             <button
-              onClick={onGetStarted}
+              onClick={() => navigate("/auth")}
               className="bg-teal-700 text-white px-6 py-2 rounded-lg font-medium hover:bg-teal-800 transition-colors"
             >
               Begin Your Journey
@@ -333,7 +335,7 @@ This treatment is particularly effective for skin disorders, enlarged liver, spl
               style={{ animationDelay: "0.5s" }}
             >
               <button
-                onClick={onGetStarted}
+                onClick={() => navigate("/auth")}
                 className="group bg-gradient-to-r from-brand-teal to-brand-teal-dark text-white px-8 py-4 rounded-xl shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 flex items-center"
               >
                 <div className="flex flex-col items-start">
@@ -1662,7 +1664,7 @@ This treatment is particularly effective for skin disorders, enlarged liver, spl
                 </div>
               </div>
               <button
-                onClick={onGetStarted}
+                onClick={() => navigate("/auth")}
                 className="mt-8 bg-gradient-to-r from-brand-teal to-brand-yellow text-white px-8 py-4 rounded-full font-semibold text-lg hover:from-brand-teal-dark hover:to-brand-yellow-dark transform hover:scale-105 transition-all duration-200 shadow-xl"
               >
                 Start Free Trial
@@ -1837,7 +1839,7 @@ This treatment is particularly effective for skin disorders, enlarged liver, spl
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
-              onClick={onGetStarted}
+              onClick={() => navigate("/auth")}
               className="bg-white/90 backdrop-blur-sm text-brand-sage-dark px-8 py-4 rounded-lotus font-display text-lg hover:bg-white transform hover:scale-105 transition-all duration-200 shadow-xl border border-white/20"
             >
               प्रारंभ करें

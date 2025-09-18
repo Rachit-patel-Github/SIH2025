@@ -1,7 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import {
+  Routes,
+  Route,
+  Navigate,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import Header from "./components/Header";
 import Navigation from "./components/Navigation";
-import Dashboard from "./components/Dashboard";
+import PatientDashboard from "./components/PatientDashboard";
+import PractitionerDashboard from "./components/PractitionerDashboard";
 import TherapyScheduling from "./components/TherapyScheduling";
 import Notifications from "./components/Notifications";
 import Progress from "./components/Progress";
@@ -14,12 +22,36 @@ import { useAppData } from "./hooks/useAppData";
 import ChatbotWidget from "./components/Dashboard/ChatbotWidget"; // ✅ import chatbot
 
 const App = () => {
-  const [activeTab, setActiveTab] = useState("dashboard");
   const [showQuickMenu, setShowQuickMenu] = useState(false);
   const [isMenuSticky, setIsMenuSticky] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState(null);
-  const [showLanding, setShowLanding] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    return localStorage.getItem("isAuthenticated") === "true";
+  });
+  const [user, setUser] = useState(() => {
+    const savedUser = localStorage.getItem("user");
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Effect to persist authentication state
+  useEffect(() => {
+    if (isAuthenticated) {
+      localStorage.setItem("isAuthenticated", "true");
+    } else {
+      localStorage.removeItem("isAuthenticated");
+    }
+  }, [isAuthenticated]);
+
+  // Effect to persist user data
+  useEffect(() => {
+    if (user) {
+      localStorage.setItem("user", JSON.stringify(user));
+    } else {
+      localStorage.removeItem("user");
+    }
+  }, [user]);
 
   const {
     notifications,
@@ -38,20 +70,16 @@ const App = () => {
       userType: userData.userType,
     });
     setIsAuthenticated(true);
-    setShowLanding(false);
+    navigate("/dashboard");
   };
 
   // ✅ Logout
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUser(null);
-    setActiveTab("dashboard");
-    setShowLanding(true);
-  };
-
-  // ✅ When "Get Started" is clicked on landing page
-  const handleGetStarted = () => {
-    setShowLanding(false);
+    localStorage.removeItem("isAuthenticated");
+    localStorage.removeItem("user");
+    navigate("/");
   };
 
   // ✅ Utility: Get current role
@@ -59,109 +87,117 @@ const App = () => {
     return user?.userType || "patient";
   };
 
-  // ✅ Render tab contents
-  const renderActiveTab = () => {
-    const userRole = getUserRole();
-
-    switch (activeTab) {
-      case "dashboard":
-        if (userRole === "practitioner") {
-          return <PractitionerHomePage user={user} />;
-        }
-        return (
-          <Dashboard
-            userRole={userRole}
-            patientProgress={patientProgress}
-            notifications={notifications}
-            user={user}
-          />
-        );
-
-      case "scheduling":
-        return (
-          <TherapyScheduling
-            userRole={userRole}
-            user={user}
-            therapySessions={therapySessions}
-          />
-        );
-
-      case "notifications":
-        return (
-          <Notifications
-            notifications={notifications}
-            setNotifications={setNotifications}
-            currentUserId={user?._id}
-            currentUserEmail={user?.email}
-            userType={user?.userType}
-          />
-        );
-
-      case "progress":
-        return (
-          <Progress
-            patientProgress={patientProgress}
-            feedbackData={feedbackData}
-          />
-        );
-
-      default:
-        if (userRole === "practitioner") {
-          return <PractitionerHomePage user={user} />;
-        }
-        return (
-          <Dashboard
-            userRole={userRole}
-            patientProgress={patientProgress}
-            notifications={notifications}
-            user={user}
-          />
-        );
+  // Redirect to login if not authenticated
+  const PrivateRoute = ({ children }) => {
+    if (!isAuthenticated) {
+      return <Navigate to="/auth" state={{ from: location.pathname }} />;
     }
+    return children;
   };
 
-  // ✅ Show landing page first
-  if (showLanding) {
-    return <LandingPage onGetStarted={handleGetStarted} />;
-  }
-
-  // ✅ Show login/signup if not authenticated
-  if (!isAuthenticated) {
-    return (
-      <AuthContainer
-        onAuthSuccess={handleAuthSuccess}
-        onBackToLanding={() => setShowLanding(true)}
-      />
-    );
-  }
-
-  // ✅ Main application after login/signup
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header
-        userRole={getUserRole()}
-        notifications={notifications}
-        user={user}
-        onLogout={handleLogout}
-      />
+      {isAuthenticated && (
+        <Header
+          userRole={getUserRole()}
+          notifications={notifications}
+          user={user}
+          onLogout={handleLogout}
+        />
+      )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+      {isAuthenticated && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <Navigation />
+        </div>
+      )}
 
-        <main>{renderActiveTab()}</main>
-      </div>
+      <main>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route
+            path="/auth"
+            element={
+              !isAuthenticated ? (
+                <AuthContainer
+                  onAuthSuccess={handleAuthSuccess}
+                  onBackToLanding={() => navigate("/")}
+                />
+              ) : (
+                <Navigate to="/dashboard" />
+              )
+            }
+          />
 
-      {/* ✅ Floating chatbot widget available everywhere */}
-      <div className="fixed bottom-6 right-6 z-50">
-        <ChatbotWidget />
-      </div>
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                {getUserRole() === "practitioner" ? (
+                  <PractitionerDashboard user={user} />
+                ) : (
+                  <PatientDashboard user={user} />
+                )}
+              </PrivateRoute>
+            }
+          />
 
-      <FloatingActionButton
-        showQuickMenu={showQuickMenu}
-        setShowQuickMenu={setShowQuickMenu}
-        isMenuSticky={isMenuSticky}
-        setIsMenuSticky={setIsMenuSticky}
-      />
+          <Route
+            path="/scheduling"
+            element={
+              <PrivateRoute>
+                <TherapyScheduling
+                  userRole={getUserRole()}
+                  user={user}
+                  therapySessions={therapySessions}
+                />
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/notifications"
+            element={
+              <PrivateRoute>
+                <Notifications
+                  notifications={notifications}
+                  setNotifications={setNotifications}
+                  currentUserId={user?._id}
+                  currentUserEmail={user?.email}
+                  userType={user?.userType}
+                />
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/progress"
+            element={
+              <PrivateRoute>
+                <Progress
+                  patientProgress={patientProgress}
+                  feedbackData={feedbackData}
+                />
+              </PrivateRoute>
+            }
+          />
+        </Routes>
+      </main>
+
+      {isAuthenticated && (
+        <>
+          <div className="fixed bottom-6 right-6 z-50">
+            <ChatbotWidget />
+          </div>
+
+          <FloatingActionButton
+            showQuickMenu={showQuickMenu}
+            setShowQuickMenu={setShowQuickMenu}
+            isMenuSticky={isMenuSticky}
+            setIsMenuSticky={setIsMenuSticky}
+          />
+        </>
+      )}
 
       <Footer />
     </div>

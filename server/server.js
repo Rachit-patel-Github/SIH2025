@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const connectDB = require("./config/db");
 const cors = require("cors");
 
@@ -19,15 +20,23 @@ app.use("/api/dashboard", require("./routes/dashboard")); // ✅ Patient & Pract
 app.use("/api/chat", require("./routes/chatRoutes")); // ✅ AI Chatbot route
 app.use("/api/practitioner", require("./routes/practitioner")); // ✅ Practitioner patient management
 // New messaging and notification routes
-app.use('/api/messages', require('./routes/messages'));
-app.use('/api/notifications', require('./routes/notifications'));
+app.use("/api/messages", require("./routes/messages"));
+app.use("/api/notifications", require("./routes/notifications"));
 
 // Start notification worker (sends email/SMS/in-app reminders)
-const { startNotificationWorker } = require('./workers/notificationWorker');
+const { startNotificationWorker } = require("./workers/notificationWorker");
 startNotificationWorker();
+
+// Serve static files from the React app in production
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../client/dist")));
+
+  // Handle React routing, return all requests to React app
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "../client/dist/index.html"));
+  });
+}
 
 // ---------------- Server ----------------
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
-
-
