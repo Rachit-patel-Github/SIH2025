@@ -2,232 +2,362 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
+import { Clock, Calendar, AlertCircle, CheckCircle, XCircle } from "lucide-react";
 
 const TherapyScheduling = ({ userRole, user }) => {
-  const [date, setDate] = useState(new Date());
-  const [selectedTimes, setSelectedTimes] = useState([]);
-  const [availableSlots, setAvailableSlots] = useState([]);
-  const [mySlots, setMySlots] = useState([]);
+  const [startDate, setStartDate] = useState(new Date());
+  const [therapyType, setTherapyType] = useState("Virechana");
+  const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [editingSession, setEditingSession] = useState(null);
+  const [editDate, setEditDate] = useState(new Date());
+  const [editTime, setEditTime] = useState('10:00');
+  const [error, setError] = useState('');
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancellingSession, setCancellingSession] = useState(null);
 
-  const timeOptions = [
-    "09:00 AM",
-    "10:00 AM",
-    "11:00 AM",
-    "12:00 PM",
-    "02:00 PM",
-    "03:00 PM",
-    "04:00 PM",
-    "05:00 PM",
-  ];
+  const therapyOptions = ["Virechana", "Vamana"];
 
-  const fetchAvailableSlots = async () => {
+  // -------------------- Session Management --------------------
+  const handleEditSession = (session) => {
+    if (session.status !== 'scheduled') {
+      alert('Only scheduled sessions can be rescheduled.');
+      return;
+    }
+    setEditingSession(session);
+    setEditDate(new Date(session.date));
+    setEditTime(session.startTime);
+    setError('');
+  };
+
+  const handleReschedule = async () => {
+    if (!editingSession || !user?.email) return;
+
+    // Additional validation
+    if (editingSession.status !== 'scheduled') {
+      setError('Only scheduled sessions can be rescheduled.');
+      return;
+    }
+
+    // Validate the selected date is in the future
+    if (editDate < new Date(new Date().setHours(0, 0, 0, 0))) {
+      setError('Cannot reschedule to a past date.');
+      return;
+    }
+
     try {
-      const res = await axios.get("http://localhost:5000/therapy/available");
-      setAvailableSlots(res.data);
+      const formattedDate = editDate.toISOString().split('T')[0];
+      await axios.put(`http://localhost:5000/sessions/${editingSession._id}`, {
+        date: formattedDate,
+        startTime: editTime,
+        userId: user.email,
+        userType: userRole,
+        role: user.role || 'patient',
+        status: 'scheduled',
+        // Preserve existing session data
+        sessionName: editingSession.sessionName,
+        phase: editingSession.phase,
+        therapyType: editingSession.therapyType
+      });
+      
+      await fetchSessions();
+      setEditingSession(null);
+      setError('');
+      // Close the modal
+      setEditingSession(null);
+      // Show success message
+      alert('Session rescheduled successfully!');
     } catch (err) {
-      console.error("Error fetching available slots:", err);
+      console.error('Error rescheduling session:', err);
+      setError(err.response?.data?.msg || err.message || 'Failed to reschedule session');
+      // Keep the modal open on error
     }
   };
 
-  const fetchMySlots = async () => {
-    if (!user?.email) return;
+  const handleCancelSession = (session) => {
+    setCancellingSession(session);
+    setShowCancelConfirm(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancellingSession || !user?.email) return;
 
     try {
-      if (userRole === "patient") {
-        const res = await axios.get(
-          `http://localhost:5000/therapy/my-slots/${user.email}`
-        );
-        setMySlots(res.data);
-      } else {
-        const res = await axios.get(
-          `http://localhost:5000/therapy/practitioner-slots/${user.email}`
-        );
-        setMySlots(res.data);
-      }
+      console.log('Sending cancel request with status:', 'cancelled');
+      await axios.put(`http://localhost:5000/sessions/${cancellingSession._id}`, {
+        status: 'cancelled',
+        userId: user.email,
+        userType: userRole,
+        role: user.role || 'patient',
+        // Preserve existing session data without modifying it
+        sessionName: cancellingSession.sessionName,
+        phase: cancellingSession.phase,
+        therapyType: cancellingSession.therapyType,
+        // Keep the original date and time
+        date: new Date(cancellingSession.date).toISOString().split('T')[0],
+        startTime: cancellingSession.startTime
+      });
+      
+      await fetchSessions();
+      setShowCancelConfirm(false);
+      setCancellingSession(null);
     } catch (err) {
-      console.error("Error fetching my slots:", err);
+      console.error('Error cancelling session:', err);
+      alert('Failed to cancel session: ' + (err.response?.data?.msg || 'Unknown error'));
+    }
+  };
+
+  // -------------------- Fetch User's Sessions --------------------
+  const fetchSessions = async () => {
+    if (!user || !user.email) return;
+    try {
+      const res = await axios.get("http://localhost:5000/sessions", {
+        params: { userId: user.email, role: userRole },
+      });
+      setSessions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Error fetching sessions:", err);
+      setSessions([]);
     }
   };
 
   useEffect(() => {
-    if (userRole === "patient") {
-      fetchAvailableSlots();
-      fetchMySlots();
-    } else if (userRole === "practitioner") {
-      fetchMySlots();
-    }
-  }, [userRole, user]);
+    fetchSessions();
+  }, [user]);
 
-  const handleCreateSlots = async () => {
-    if (selectedTimes.length === 0) {
-      alert("Please select at least one time slot");
+  // -------------------- Generate Therapy Schedule --------------------
+  const handleGenerateSchedule = async () => {
+    if (!therapyType || !startDate) {
+      alert("Please select therapy type and start date");
       return;
     }
-
     setLoading(true);
     try {
-      await axios.post("http://localhost:5000/therapy/create", {
-        practitioner: user.email,
-        date: date.toISOString().split("T")[0],
-        times: selectedTimes,
+      await axios.post("http://localhost:5000/sessions", {
+        patientId: user.email,
+        therapyType,
+        startDate: startDate.toISOString().split("T")[0],
+        status: 'scheduled' // Explicitly set lowercase status
       });
-
-      alert("Slots created successfully");
-      setSelectedTimes([]);
-      fetchMySlots();
+      alert("Therapy schedule generated successfully!");
+      fetchSessions();
     } catch (err) {
-      console.error("Error creating slots:", err);
-      alert("Error creating slots");
+      console.error("Error generating schedule:", err);
+      alert("Failed to generate schedule");
     }
     setLoading(false);
   };
 
-  const handleBookSlot = async (slotId) => {
-    setLoading(true);
-    try {
-      await axios.post(`http://localhost:5000/therapy/book/${slotId}`, {
-        patientEmail: user.email,
-      });
+  // -------------------- Render --------------------
+  if (!user || !user.email) {
+    return <div className="p-6 text-gray-600">Loading user info...</div>;
+  }
 
-      alert("Slot booked successfully");
-      fetchAvailableSlots();
-      fetchMySlots();
-    } catch (err) {
-      console.error("Error booking slot:", err);
-      alert("Error booking slot");
-    }
-    setLoading(false);
-  };
-
-  const handleDeleteSlot = async (slotId) => {
-    if (!window.confirm("Are you sure you want to delete this slot?")) return;
-
-    setLoading(true);
-    try {
-      await axios.delete(`http://localhost:5000/therapy/delete/${slotId}`);
-      alert("Slot deleted successfully");
-      fetchMySlots();
-    } catch (err) {
-      console.error("Error deleting slot:", err);
-      alert("Error deleting slot");
-    }
-    setLoading(false);
-  };
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      {userRole === "practitioner" && (
-        <>
-          <h2 className="text-xl font-semibold mb-4">Create Therapy Slots</h2>
-          <div className="flex flex-col space-y-4">
+    <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
+      {/* -------------------- Generate Schedule -------------------- */}
+      {userRole === "patient" && (
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Generate Panchakarma Schedule</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <select
+              value={therapyType}
+              onChange={(e) => setTherapyType(e.target.value)}
+              className="border rounded p-2 w-full"
+            >
+              {therapyOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
             <DatePicker
-              selected={date}
-              onChange={(d) => setDate(d)}
+              selected={startDate}
+              onChange={(d) => setStartDate(d)}
               dateFormat="yyyy-MM-dd"
-              className="border p-2 rounded w-full"
+              className="border rounded p-2 w-full"
             />
 
-            <div className="grid grid-cols-2 gap-2">
-              {timeOptions.map((time) => (
-                <label key={time} className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    value={time}
-                    checked={selectedTimes.includes(time)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedTimes([...selectedTimes, time]);
-                      } else {
-                        setSelectedTimes(
-                          selectedTimes.filter((t) => t !== time)
-                        );
-                      }
-                    }}
-                  />
-                  <span>{time}</span>
-                </label>
-              ))}
-            </div>
-
             <button
-              onClick={handleCreateSlots}
+              onClick={handleGenerateSchedule}
               disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded"
+              className="bg-green-600 text-white rounded p-2 w-full hover:bg-green-700"
             >
-              {loading ? "Creating..." : "Add Slots"}
+              {loading ? "Generating..." : "Generate Schedule"}
             </button>
           </div>
-
-          <h2 className="text-xl font-semibold mt-8 mb-4">My Slots</h2>
-          <ul className="space-y-2">
-            {mySlots.map((slot) => (
-              <li
-                key={slot._id}
-                className="border p-3 rounded flex justify-between items-center"
-              >
-                <span>
-                  {slot.date} - {slot.time}{" "}
-                  {slot.isBooked
-                    ? `(Booked by ${slot.patient?.name || slot.patient?.email || "Unknown"})`
-                    : "(Available)"}
-                </span>
-                {!slot.isBooked && (
-                  <button
-                    onClick={() => handleDeleteSlot(slot._id)}
-                    className="bg-red-500 text-white px-2 py-1 rounded"
-                  >
-                    Delete
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+        </div>
       )}
 
-      {userRole === "patient" && (
-        <>
-          <h2 className="text-xl font-semibold mb-4">Available Slots</h2>
-          <ul className="space-y-2">
-            {availableSlots.map((slot) => (
-              <li
-                key={slot._id}
-                className="border p-3 rounded flex justify-between items-center"
+      {/* -------------------- My Sessions -------------------- */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold mb-4 text-gray-800">My Therapy Sessions</h2>
+        {safeSessions.length === 0 ? (
+          <div className="text-center py-8">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">No sessions scheduled yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {safeSessions.map((session) => (
+              <div
+                key={session._id}
+                className="border p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 bg-white"
               >
-                <span>
-                  {slot.date} - {slot.time} with{" "}
-                  {slot.practitioner?.name || slot.practitioner?.email || "Unknown"}
-                </span>
-                <button
-                  onClick={() => handleBookSlot(slot._id)}
-                  disabled={loading}
-                  className="bg-blue-600 text-white px-2 py-1 rounded"
-                >
-                  Book
-                </button>
-              </li>
-            ))}
-          </ul>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+                  <div className="flex-1">
+                    <div className="flex items-center mb-2">
+                      {session.status === 'completed' ? (
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-blue-500 mr-2" />
+                      )}
+                      <h3 className="font-semibold text-gray-800">{session.sessionName}</h3>
+                      <span className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        {session.phase}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      <div className="flex items-center">
+                        <Calendar className="h-4 w-4 mr-1" />
+                        {session.date}
+                      </div>
+                      <div className="flex items-center">
+                        <Clock className="h-4 w-4 mr-1" />
+                        {session.startTime}
+                      </div>
+                      <div className={`px-2 py-0.5 rounded-full text-xs ${
+                        session.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        session.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                        session.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {session.status.charAt(0).toUpperCase() + session.status.slice(1)}
+                      </div>
+                      {session.status === 'cancelled' && (
+                        <span className="ml-2 text-xs text-gray-500">
+                          This session cannot be modified
+                        </span>
+                      )}
+                    </div>
+                    {session.notes && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        <span className="font-medium">Notes:</span> {session.notes}
+                      </p>
+                    )}
+                  </div>
 
-          <h2 className="text-xl font-semibold mt-8 mb-4">My Booked Slots</h2>
-          <ul className="space-y-2">
-            {mySlots.map((slot) => (
-              <li
-                key={slot._id}
-                className="border p-3 rounded flex justify-between items-center"
-              >
-                <span>
-                  {slot.date} - {slot.time} with{" "}
-                  {slot.practitioner?.name || slot.practitioner?.email || "Unknown"}
-                </span>
-              </li>
+                  {session.status === 'scheduled' && (
+                    <div className="flex items-center mt-4 md:mt-0 space-x-2">
+                      <button
+                        onClick={() => handleEditSession(session)}
+                        className="flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        <Calendar className="h-4 w-4 mr-1" />
+                        Reschedule
+                      </button>
+                      <button
+                        onClick={() => handleCancelSession(session)}
+                        className="flex items-center px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             ))}
-          </ul>
-        </>
+          </div>
+        )}
+      </div>
+
+      {/* Reschedule Modal */}
+      {editingSession && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Reschedule Session</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Date
+                </label>
+                <DatePicker
+                  selected={editDate}
+                  onChange={setEditDate}
+                  dateFormat="yyyy-MM-dd"
+                  minDate={new Date()}
+                  className="w-full border rounded-md p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Time
+                </label>
+                <select
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                  className="w-full border rounded-md p-2"
+                >
+                  {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'].map(time => (
+                    <option key={time} value={time}>{time}</option>
+                  ))}
+                </select>
+              </div>
+              {error && (
+                <p className="text-red-600 text-sm">{error}</p>
+              )}
+              <div className="flex justify-end space-x-2">
+                <button
+                  onClick={() => setEditingSession(null)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReschedule}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Confirmation Modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-2">Cancel Session</h3>
+            <p className="text-gray-600 mb-4">
+              Are you sure you want to cancel this therapy session?
+            </p>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded"
+              >
+                No, Keep
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Yes, Cancel Session
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
 };
 
 export default TherapyScheduling;
+

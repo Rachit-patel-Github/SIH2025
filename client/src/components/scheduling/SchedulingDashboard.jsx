@@ -3,20 +3,37 @@ import axios from "axios";
 import ProgressOverview from "../Dashboard/ProgressOverview";
 import QuickStats from "../Dashboard/QuickStats";
 import WellnessMetrics from "../Dashboard/WellnessMetrics";
+import UpcomingSessions from "./UpcomingSessions";
+// ChatPanel removed from individual dashboards; now located on Notifications & Care page
+import NotificationsPanel from '../NotificationsPanel';
 
 const Dashboard = ({ user }) => {
   const [patientData, setPatientData] = useState(null);
+  const [sessions, setSessions] = useState([]);
   const [error, setError] = useState(null);
 
+  const fetchSessions = async () => {
+    try {
+      const res = await axios.get(`http://localhost:5000/api/sessions?userId=${user.email}&role=${user.userType}`);
+      setSessions(res.data);
+    } catch (err) {
+      console.error("Error fetching sessions:", err);
+      setError("Failed to load sessions");
+    }
+  };
+
   useEffect(() => {
-    if (user && user.userType === "patient") {
-      axios
-        .get(`http://localhost:5000/api/dashboard/patient/${user._id}`)
-        .then((res) => setPatientData(res.data))
-        .catch((err) => {
-          console.error("Error fetching patient dashboard:", err);
-          setError("Failed to load patient data");
-        });
+    if (user) {
+      fetchSessions();
+      if (user.userType === "patient") {
+        axios
+          .get(`http://localhost:5000/api/dashboard/patient/${user._id}`)
+          .then((res) => setPatientData(res.data))
+          .catch((err) => {
+            console.error("Error fetching patient dashboard:", err);
+            setError("Failed to load patient data");
+          });
+      }
     }
   }, [user]);
 
@@ -30,6 +47,12 @@ const Dashboard = ({ user }) => {
           <QuickStats user={user} data={patientData} />
           <ProgressOverview user={user} data={patientData} />
           <WellnessMetrics user={user} data={patientData} />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2">
+              {/* Chat moved into Notifications & Care section */}
+              <NotificationsPanel userEmail={user?.email} currentUserId={user?._id} userType={user?.userType} />
+            </div>
+          </div>
         </div>
       ) : user.userType === "practitioner" ? (
         <div className="space-y-6">
@@ -42,12 +65,19 @@ const Dashboard = ({ user }) => {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-white p-4 rounded-lg shadow-sm border">Appointments</div>
             <div className="bg-white p-4 rounded-lg shadow-sm border">My Patients</div>
             <div className="bg-white p-4 rounded-lg shadow-sm border">Therapies</div>
             <div className="bg-white p-4 rounded-lg shadow-sm border">Consultations</div>
           </div>
+          
+          <UpcomingSessions 
+            therapySessions={sessions}
+            userType={user.userType}
+            userId={user.email}
+            onSessionUpdated={fetchSessions}
+          />
         </div>
       ) : (
         <p>Unknown user type: {user.userType}</p>

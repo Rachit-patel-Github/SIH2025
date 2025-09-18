@@ -1,0 +1,327 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
+import { Clock, Calendar, AlertCircle, CheckCircle, XCircle } from "lucide-react";
+
+const TherapyScheduling = ({ userRole, user }) => {
+  const [startDate, setStartDate] = useState(new Date());
+  const [therapyType, setTherapyType] = useState("Virechana");
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [editingSession, setEditingSession] = useState(null);
+  const [editDate, setEditDate] = useState(new Date());
+  const [editTime, setEditTime] = useState('10:00');
+  const [error, setError] = useState('');
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancellingSession, setCancellingSession] = useState(null);
+
+  const therapyOptions = ["Virechana", "Vamana"];
+
+  // -------------------- Session Management --------------------
+  const handleEditSession = (session) => {
+    setEditingSession(session);
+    setEditDate(new Date(session.date));
+    setEditTime(session.startTime);
+    setError('');
+  };
+
+  const handleReschedule = async () => {
+    if (!editingSession || !user?.email) return;
+
+    try {
+      const formattedDate = editDate.toISOString().split('T')[0];
+      await axios.put(`http://localhost:5000/sessions/${editingSession._id}`, {
+        date: formattedDate,
+        startTime: editTime,
+        userId: user.email,
+        userType: userRole,
+        role: user.role || 'patient'
+      });
+      
+      await fetchSessions();
+      setEditingSession(null);
+      setError('');
+      // Show success message
+      alert('Session rescheduled successfully!');
+    } catch (err) {
+      console.error('Error rescheduling session:', err);
+      setError(err.response?.data?.msg || err.message || 'Failed to reschedule session');
+      // Keep the modal open on error
+    }
+  };
+
+  const handleCancelSession = (session) => {
+    setCancellingSession(session);
+    setShowCancelConfirm(true);
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancellingSession || !user?.email) return;
+
+    try {
+      console.log('Sending cancel request with status:', 'cancelled');
+      await axios.put(`http://localhost:5000/sessions/${cancellingSession._id}`, {
+        status: 'cancelled',
+        userId: user.email,
+        userType: userRole,
+        role: user.role || 'patient'
+      });
+      
+      await fetchSessions();
+      setShowCancelConfirm(false);
+      setCancellingSession(null);
+    } catch (err) {
+      console.error('Error cancelling session:', err);
+      alert('Failed to cancel session: ' + (err.response?.data?.msg || 'Unknown error'));
+    }
+  };
+
+  // -------------------- Fetch User's Sessions --------------------
+  const fetchSessions = async () => {
+    if (!user || !user.email) return;
+    try {
+      const res = await axios.get("http://localhost:5000/sessions", {
+        params: { userId: user.email, role: userRole },
+      });
+      setSessions(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      console.error("Error fetching sessions:", err);
+      setSessions([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+  }, [user]);
+
+  // -------------------- Generate Therapy Schedule --------------------
+  const handleGenerateSchedule = async () => {
+    if (!therapyType || !startDate) {
+      alert("Please select therapy type and start date");
+      return;
+    }
+    setLoading(true);
+    try {
+      await axios.post("http://localhost:5000/sessions", {
+        patientId: user.email,
+        therapyType,
+        startDate: startDate.toISOString().split("T")[0],
+        status: 'scheduled'
+      });
+      await fetchSessions();
+      alert("Therapy schedule generated successfully!");
+    } catch (err) {
+      console.error("Error generating schedule:", err);
+      alert("Failed to generate schedule: " + (err.response?.data?.msg || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -------------------- Render --------------------
+  if (!user || !user.email) {
+    return <div className="p-6 text-gray-600">Loading user info...</div>;
+  }
+
+  const safeSessions = Array.isArray(sessions) ? sessions : [];
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
+      {/* -------------------- Generate Schedule -------------------- */}
+      {userRole === "patient" && (
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Generate Panchakarma Schedule</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <select
+              value={therapyType}
+              onChange={(e) => setTherapyType(e.target.value)}
+              className="border rounded p-2 w-full"
+            >
+              {therapyOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
+            <DatePicker
+              selected={startDate}
+              onChange={(d) => setStartDate(d)}
+              dateFormat="yyyy-MM-dd"
+              className="border rounded p-2 w-full"
+            />
+
+            <button
+              onClick={handleGenerateSchedule}
+              disabled={loading}
+              className="bg-green-600 text-white rounded p-2 w-full hover:bg-green-700"
+            >
+              {loading ? "Generating..." : "Generate Schedule"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- My Sessions -------------------- */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold mb-4 text-gray-800">My Therapy Sessions</h2>
+        {safeSessions.length === 0 ? (
+          <div className="text-center py-8">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600">No sessions scheduled yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {safeSessions.map((session) => (
+              <div
+                key={session._id}
+                className="border p-4 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 bg-white"
+              >
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
+                  <div className="flex-1">
+                    <div className="flex items-center mb-2">
+                      {session.status === 'completed' ? (
+                        <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-blue-500 mr-2" />
+                      )}
+                      <h3 className="font-semibold text-gray-800">{session.sessionName}</h3>
+                      <span className="ml-2 px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                        {session.phase}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      <div className="flex items-center">
+                        <Calendar className="h-4 w-4 mr-1" />
+                        {session.date}
+                      </div>
+                      <div className="flex items-center">
+                        <Clock className="h-4 w-4 mr-1" />
+                        {session.startTime}
+                      </div>
+                      <div className={`px-2 py-0.5 rounded-full text-xs ${
+                        session.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        session.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {session.status}
+                      </div>
+                    </div>
+                    {session.notes && (
+                      <p className="mt-2 text-sm text-gray-600">
+                        <span className="font-medium">Notes:</span> {session.notes}
+                      </p>
+                    )}
+                  </div>
+
+                  {session.status !== 'completed' && session.status !== 'cancelled' && (
+                    <div className="flex items-center mt-4 md:mt-0 space-x-2">
+                      <button
+                        onClick={() => handleEditSession(session)}
+                        className="flex items-center px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        <Calendar className="h-4 w-4 mr-1" />
+                        Reschedule
+                      </button>
+                      <button
+                        onClick={() => handleCancelSession(session)}
+                        className="flex items-center px-3 py-1.5 text-sm text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                      >
+                        <XCircle className="h-4 w-4 mr-1" />
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Reschedule Modal */}
+      {editingSession && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Reschedule Session</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Date
+                </label>
+                <DatePicker
+                  selected={editDate}
+                  onChange={setEditDate}
+                  dateFormat="yyyy-MM-dd"
+                  minDate={new Date()}
+                  className="w-full border rounded-md p-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Time
+                </label>
+                <select
+                  value={editTime}
+                  onChange={(e) => setEditTime(e.target.value)}
+                  className="w-full border rounded-md p-2"
+                >
+                  {['09:00', '10:00', '11:00', '14:00', '15:00', '16:00'].map(time => (
+                    <option key={time} value={time}>{time}</option>
+                  ))}
+                </select>
+              </div>
+              {error && (
+                <p className="text-red-600 text-sm">{error}</p>
+              )}
+              <div className="flex justify-end space-x-2">
+                <button
+                  onClick={() => setEditingSession(null)}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReschedule}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancel Confirmation Modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-2">Cancel Session</h3>
+            <p className="text-gray-600 mb-4">
+              Are you sure you want to cancel this therapy session?
+            </p>
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-700 hover:bg-gray-100 rounded"
+              >
+                No, Keep
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+              >
+                Yes, Cancel Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default TherapyScheduling;
